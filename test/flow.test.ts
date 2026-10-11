@@ -1,4 +1,9 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { openDatabase } from "../src/db.ts";
 import { DAY, setup } from "./helpers.ts";
 
 describe("contrato do link", () => {
@@ -84,14 +89,47 @@ describe("primeira abertura e toques", () => {
     expect(body.origin).toMatchObject({ type: "referral", link: "ind-ana" });
   });
 
-  it("a mesma URL de clique aberta em outro aparelho é outra pessoa: conta para cada aparelho", async () => {
+  it("o clique fica com o primeiro aparelho; em outro aparelho a mesma URL vale como link copiado", async () => {
+    const t = setup();
+    await t.seedLinks();
+    const referral = await t.click("ind-ana");
+    const first = await t.open("dev-aaaa", referral.link, referral.click);
+    const other = await t.open("dev-bbbb", referral.link, referral.click);
+    expect(first.touch).toMatchObject({ click_id: referral.click, click_id_source: "link" });
+    expect(first.click_warning).toBeUndefined();
+    expect(other.touch?.click_id_source).toBe("derived");
+    expect(other.touch?.click_id).not.toBe(referral.click);
+    expect(other.click_warning).toBe("clique já usado em outro aparelho; contado como um toque por link e aparelho");
+
+    // Repetir a abertura não muda o dono do clique nem cria toque novo em nenhum dos dois.
+    expect((await t.open("dev-bbbb", referral.link, referral.click)).touch).toMatchObject({
+      touch_id: other.touch?.touch_id,
+      duplicate: true,
+    });
+    expect((await t.open("dev-aaaa", referral.link, referral.click)).touch).toMatchObject({
+      touch_id: first.touch?.touch_id,
+      duplicate: true,
+    });
+
+    const signup = await t.signup("usr_2", "dev-bbbb");
+    expect(signup.body.touches).toEqual([
+      expect.objectContaining({ link: "ind-ana", click_id_source: "derived", outcome: "won" }),
+    ]);
+  });
+
+  it("o banco não deixa o mesmo clique virar toque em dois aparelhos", async () => {
     const t = setup();
     await t.seedLinks();
     const referral = await t.click("ind-ana");
     await t.open("dev-aaaa", referral.link, referral.click);
-    await t.open("dev-bbbb", referral.link, referral.click);
-    expect((await t.signup("usr_1", "dev-aaaa")).body.origin.type).toBe("referral");
-    expect((await t.signup("usr_2", "dev-bbbb")).body.origin.type).toBe("referral");
+    await t.open("dev-bbbb");
+    expect(() =>
+      t.db
+        .prepare(
+          "INSERT INTO touches (device_id, click_id, click_id_source, link_code, recorded_at) VALUES ('dev-bbbb', ?, 'link', 'ind-ana', 'agora')",
+        )
+        .run(referral.click),
+    ).toThrow(/UNIQUE/);
   });
 
   it("link desconhecido não impede de registrar a primeira abertura", async () => {
@@ -235,5 +273,21 @@ describe("cadastro", () => {
     const { body } = await t.signup("usr_1", "dev-aaaa");
     expect(body.origin.type).toBe("referral");
     expect(body.window.days).toBe(30);
+  });
+});
+
+describe("banco", () => {
+  it("recusa, na abertura, um banco criado por outra versão do schema", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "origens-")), "antigo.sqlite");
+    const old = new DatabaseSync(path);
+    old.exec("CREATE TABLE links (code TEXT PRIMARY KEY)");
+    old.close();
+    expect(() => openDatabase(path)).toThrow(/outra versão do schema/);
+  });
+
+  it("reabre sem erro um banco da versão atual", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "origens-")), "atual.sqlite");
+    openDatabase(path).close();
+    expect(() => openDatabase(path).close()).not.toThrow();
   });
 });

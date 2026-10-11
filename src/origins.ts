@@ -181,16 +181,26 @@ export function createOriginService({
         const target = link(requested);
         if (!target) return { ...base, touch: null, touch_error: "link desconhecido; abertura registrada sem toque" };
 
-        // O clique só vale se foi gerado para este link. URL copiada, clique inventado ou de outro link:
-        // no máximo um toque por link e aparelho.
-        const verified = clickRow !== undefined && clickRow.link_code === target.code;
+        // O clique só vale se foi gerado para este link e fica com o primeiro aparelho que o usar.
+        // URL copiada, clique inventado, de outro link ou já usado em outro aparelho: no máximo um
+        // toque por link e aparelho, marcado como "derived".
+        const sameLink = clickRow !== undefined && clickRow.link_code === target.code;
+        const owner = sameLink
+          ? (db
+              .prepare("SELECT device_id FROM touches WHERE click_id = ? AND click_id_source = 'link'")
+              .get(clickRow.click_id) as { device_id: string } | undefined)
+          : undefined;
+        const usedElsewhere = owner !== undefined && owner.device_id !== deviceId;
+        const verified = sameLink && !usedElsewhere;
         const clickId = verified
           ? clickRow.click_id
           : `derived-${createHash("sha1").update(`${deviceId}|${target.code}`).digest("hex").slice(0, 16)}`;
-        const clickWarning =
-          !verified && typeof clickParam === "string" && clickParam !== ""
-            ? "clique desconhecido ou de outro link; contado como um toque por link e aparelho"
-            : undefined;
+        let clickWarning: string | undefined;
+        if (usedElsewhere) {
+          clickWarning = "clique já usado em outro aparelho; contado como um toque por link e aparelho";
+        } else if (!verified && typeof clickParam === "string" && clickParam !== "") {
+          clickWarning = "clique desconhecido ou de outro link; contado como um toque por link e aparelho";
+        }
         const findTouch = () =>
           db
             .prepare(
@@ -247,6 +257,7 @@ export function createOriginService({
           type: t.type,
           ref: t.ref,
           clickId: t.click_id,
+          clickIdSource: t.click_id_source,
           recordedAt: t.recorded_at,
         }));
         const decision = decideOrigin({

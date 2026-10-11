@@ -5,7 +5,15 @@ const FIRST_OPEN = "2026-03-02T15:00:00.000Z"; // janela de 7 dias termina em 20
 
 let nextId = 1;
 function touch(linkCode: string, type: Touch["type"], recordedAt: string): Touch {
-  return { id: nextId++, linkCode, type, ref: `${type}-ref`, clickId: `clk-${nextId}`, recordedAt };
+  return {
+    id: nextId++,
+    linkCode,
+    type,
+    ref: `${type}-ref`,
+    clickId: `clk-${nextId}`,
+    clickIdSource: "link",
+    recordedAt,
+  };
 }
 
 describe("qual toque vence", () => {

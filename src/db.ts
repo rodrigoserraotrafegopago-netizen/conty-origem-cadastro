@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS touches (
   recorded_at TEXT NOT NULL,
   UNIQUE (device_id, click_id)
 );
+-- Um clique do redirecionador pertence a um aparelho só: o primeiro que abriu o app com ele.
+CREATE UNIQUE INDEX IF NOT EXISTS one_device_per_click ON touches (click_id) WHERE click_id_source = 'link';
 
 -- A decisão inteira fica guardada para auditoria e não muda depois do cadastro.
 CREATE TABLE IF NOT EXISTS signups (
@@ -56,10 +58,24 @@ BEGIN
 END;
 `;
 
+// Sem migrations: o schema tem versão, e um banco criado por outra versão é recusado com uma mensagem clara
+// (em vez de falhar no meio de uma requisição).
+const SCHEMA_VERSION = 2;
+
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA foreign_keys = ON;");
+  // Outra conexão no mesmo arquivo espera a vez (até 5 s) em vez de falhar na hora com "database is locked".
+  db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+  const { user_version: version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
+  const empty = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table'").get() === undefined;
+  if (!empty && version !== SCHEMA_VERSION) {
+    db.close();
+    throw new Error(
+      `${path} foi criado por outra versão do schema (${version}; esta é a ${SCHEMA_VERSION}). Não há migrations: apague o arquivo ou use outro DB_PATH.`,
+    );
+  }
   db.exec(SCHEMA);
+  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   return db;
 }

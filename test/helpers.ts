@@ -58,8 +58,15 @@ export function setup(options: { windowDays?: number } = {}) {
         first_open: boolean;
         first_open_at: string;
         window_ends_at: string;
-        touch: null | { touch_id: number; duplicate: boolean; after_signup: boolean; click_id_source: string };
+        touch: null | {
+          touch_id: number;
+          click_id: string;
+          click_id_source: string;
+          duplicate: boolean;
+          after_signup: boolean;
+        };
         touch_error?: string;
+        click_warning?: string;
       };
     },
     async signup(userId: string, deviceId: string) {

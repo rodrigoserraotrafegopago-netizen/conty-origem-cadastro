@@ -26,6 +26,8 @@ export type Touch = {
   type: OriginType;
   ref: string;
   clickId: string;
+  /** "link": clique gerado pelo redirecionador; "derived": URL copiada ou clique que não vale aqui. */
+  clickIdSource: "link" | "derived";
   recordedAt: string;
 };
 
@@ -35,6 +37,7 @@ export type TouchVerdict = {
   type: OriginType;
   ref: string;
   click_id: string;
+  click_id_source: "link" | "derived";
   recorded_at: string;
   outcome: "won" | "lost" | "ineligible";
   reason: string;
@@ -87,6 +90,7 @@ export function decideOrigin(input: {
     type: t.type,
     ref: t.ref,
     click_id: t.clickId,
+    click_id_source: t.clickIdSource,
     recorded_at: t.recordedAt,
     outcome,
     reason,
